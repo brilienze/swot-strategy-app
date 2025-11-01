@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Powered SWOT Strategy Generator</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- PWA Manifest Link (CRITICAL for Install) -->
+    <link rel="manifest" href="swot_manifest.json"> 
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fc;
+            color: #333;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        #app-container {
+            background-color: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 1200px;
+            padding: 40px;
+            animation: fadeIn 0.8s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .input-card {
+            background-color: #edf2f7;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+        .input-card:hover {
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+        }
+        textarea {
+            resize: none;
+            border-radius: 10px;
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            transition: border-color 0.3s;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #4c51bf;
+            box-shadow: 0 0 0 3px rgba(76, 81, 191, 0.1);
+        }
+        .result-card {
+            background-color: #ffffff;
+            border-radius: 15px;
+            padding: 30px;
+            margin-top: 30px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
+        }
+        .strategy-section h3 {
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 8px;
+            margin-bottom: 15px;
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.9);
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.3s;
+        }
+        .spinner {
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid #4c51bf;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #48bb78;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            z-index: 60;
+            opacity: 0;
+            transition: opacity 0.5s, transform 0.5s;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="spinner"></div>
+        <p class="mt-4 text-xl font-semibold text-gray-700">Analyzing SWOT...</p>
+        <p class="text-gray-500 mt-2">Generating Strategic Recommendations...</p>
+    </div>
+
+    <div id="app-container">
+        <header class="text-center mb-10">
+            <h1 class="text-5xl font-extrabold text-indigo-700 mb-2">AI Strategy Generator</h1>
+            <p class="text-lg text-gray-600">Enter your SWOT factors for instant strategic insights.</p>
+        </header>
+
+        <!-- Input Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <!-- Strengths -->
+            <div class="input-card">
+                <h2 class="text-xl font-bold text-green-700 mb-3 flex items-center"><i data-lucide="check-circle" class="w-5 h-5 mr-2"></i> Strengths</h2>
+                <textarea id="strengths-input" rows="5" class="w-full" placeholder="e.g., Strong brand recognition, proprietary technology, experienced team..."></textarea>
+            </div>
+            <!-- Weaknesses -->
+            <div class="input-card">
+                <h2 class="text-xl font-bold text-red-700 mb-3 flex items-center"><i data-lucide="x-circle" class="w-5 h-5 mr-2"></i> Weaknesses</h2>
+                <textarea id="weaknesses-input" rows="5" class="w-full" placeholder="e.g., High operating costs, reliance on single supplier, poor digital presence..."></textarea>
+            </div>
+            <!-- Opportunities -->
+            <div class="input-card">
+                <h2 class="text-xl font-bold text-blue-700 mb-3 flex items-center"><i data-lucide="trending-up" class="w-5 h-5 mr-2"></i> Opportunities</h2>
+                <textarea id="opportunities-input" rows="5" class="w-full" placeholder="e.g., New emerging market, changing consumer preference for X, technological shift..."></textarea>
+            </div>
+            <!-- Threats -->
+            <div class="input-card">
+                <h2 class="text-xl font-bold text-yellow-700 mb-3 flex items-center"><i data-lucide="alert-triangle" class="w-5 h-5 mr-2"></i> Threats</h2>
+                <textarea id="threats-input" rows="5" class="w-full" placeholder="e.g., New competitive entry, stricter government regulation, economic recession..."></textarea>
+            </div>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div class="text-center mb-12 flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4">
+            
+            <!-- Install App Button (Hidden by default, shown by PWA event) -->
+            <button id="install-btn" onclick="promptInstall()" class="hidden bg-emerald-600 text-white px-8 py-4 text-xl font-bold rounded-xl shadow-lg hover:bg-emerald-700 transition duration-300 transform hover:scale-105 flex items-center justify-center mx-auto sm:mx-0">
+                <i data-lucide="download-cloud" class="w-6 h-6 mr-2"></i> Install App
+            </button>
+            
+            <!-- Main Analyze Button -->
+            <button onclick="analyzeSWOT()" class="bg-indigo-600 text-white px-8 py-4 text-xl font-bold rounded-xl shadow-lg hover:bg-indigo-700 transition duration-300 transform hover:scale-105 flex items-center justify-center mx-auto sm:mx-0">
+                <i data-lucide="zap" class="w-6 h-6 mr-2"></i> Analyze SWOT
+            </button>
+
+            <!-- Clear Button -->
+            <button onclick="clearInputs()" class="bg-gray-400 text-white px-8 py-4 text-xl font-bold rounded-xl shadow-lg hover:bg-gray-500 transition duration-300 transform hover:scale-105 flex items-center justify-center mx-auto sm:mx-0">
+                <i data-lucide="refresh-ccw" class="w-6 h-6 mr-2"></i> Clear Inputs
+            </button>
+        </div>
+
+        <!-- Result Display -->
+        <div id="result-display" class="hidden result-card">
+            <h2 class="text-3xl font-extrabold text-indigo-700 mb-6 text-center">AI Strategic Recommendations</h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                
+                <!-- SO (Maxi-Maxi) -->
+                <div class="strategy-section">
+                    <h3 class="text-2xl font-bold text-green-600 flex items-center"><i data-lucide="activity" class="w-6 h-6 mr-2"></i> S-O (Strengths-Opportunities)</h3>
+                    <p class="text-gray-600 mb-2">Use your strengths to maximize opportunities.</p>
+                    <div id="so-strategy" class="bg-green-50 p-4 rounded-lg text-gray-800"></div>
+                </div>
+
+                <!-- WO (Mini-Maxi) -->
+                <div class="strategy-section">
+                    <h3 class="text-2xl font-bold text-blue-600 flex items-center"><i data-lucide="target" class="w-6 h-6 mr-2"></i> W-O (Weaknesses-Opportunities)</h3>
+                    <p class="text-gray-600 mb-2">Overcome weaknesses by taking advantage of opportunities.</p>
+                    <div id="wo-strategy" class="bg-blue-50 p-4 rounded-lg text-gray-800"></div>
+                </div>
+
+                <!-- ST (Maxi-Mini) -->
+                <div class="strategy-section">
+                    <h3 class="text-2xl font-bold text-yellow-600 flex items-center"><i data-lucide="shield" class="w-6 h-6 mr-2"></i> S-T (Strengths-Threats)</h3>
+                    <p class="text-gray-600 mb-2">Use your strengths to minimize threats.</p>
+                    <div id="st-strategy" class="bg-yellow-50 p-4 rounded-lg text-gray-800"></div>
+                </div>
+
+                <!-- WT (Mini-Mini) -->
+                <div class="strategy-section">
+                    <h3 class="text-2xl font-bold text-red-600 flex items-center"><i data-lucide="alert-octagon" class="w-6 h-6 mr-2"></i> W-T (Weaknesses-Threats)</h3>
+                    <p class="text-gray-600 mb-2">Minimize weaknesses and avoid threats.</p>
+                    <div id="wt-strategy" class="bg-red-50 p-4 rounded-lg text-gray-800"></div>
+                </div>
+            </div>
+            
+            <div id="summary-section" class="mt-8 pt-6 border-t border-gray-200">
+                <h3 class="text-2xl font-bold text-indigo-700 mb-4 text-center">Overall Strategic Summary</h3>
+                <div id="overall-summary" class="bg-gray-100 p-4 rounded-lg text-gray-800"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Custom Toast Message -->
+    <div id="toast-message" class="toast"></div>
+
+    <script>
+        // --- PWA INSTALLATION LOGIC ---
+        let deferredPrompt = null;
+        const installBtn = document.getElementById('install-btn');
+
+        // 1. Service Worker Registration (Required for PWA)
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./swot_service_worker.js')
+                    .then(registration => {
+                        console.log('SW registered:', registration);
+                    })
+                    .catch(registrationError => {
+                        console.error('SW registration failed:', registrationError);
+                    });
+            });
+        }
+
+        // 2. Capture Install Prompt Event
+        window.addEventListener('beforeinstallprompt', (e) => {
+            // Prevent the default browser prompt
+            e.preventDefault();
+            // Stash the event so it can be triggered later
+            deferredPrompt = e;
+            // Show the install button (it will be hidden by default in CSS)
+            installBtn.classList.remove('hidden');
+        });
+
+        // 3. Prompt Install Function (Tied to the button click)
+        function promptInstall() {
+            if (deferredPrompt) {
+                // Show the prompt
+                deferredPrompt.prompt();
+                // Wait for the user to respond to the prompt
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        showToast('App installed successfully!', 'success');
+                    } else {
+                        showToast('Installation dismissed.', 'info');
+                    }
+                    deferredPrompt = null;
+                    // Hide the button regardless of choice
+                    installBtn.classList.add('hidden');
+                });
+            } else {
+                // Fallback for when the event hasn't fired (e.g., already installed)
+                showToast('App is already installed or requires manual browser install process.', 'info');
+            }
+        }
+        
+        // --- UTILITY FUNCTIONS ---
+
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast-message');
+            toast.textContent = message;
+            
+            // Apply color based on type
+            toast.classList.remove('bg-red-500', 'bg-blue-500', 'bg-green-500');
+            if (type === 'success') {
+                toast.classList.add('bg-green-500');
+            } else if (type === 'error') {
+                toast.classList.add('bg-red-500');
+            } else {
+                toast.classList.add('bg-blue-500');
+            }
+
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        function clearInputs() {
+            document.getElementById('strengths-input').value = '';
+            document.getElementById('weaknesses-input').value = '';
+            document.getElementById('opportunities-input').value = '';
+            document.getElementById('threats-input').value = '';
+            document.getElementById('result-display').classList.add('hidden');
+            showToast('Inputs cleared.', 'info');
+        }
+        
+        // --- GEMINI API CALL LOGIC ---
+
+        const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=";
+        const apiKey = ""; // Leave as-is, Canvas provides this at runtime
+
+        async function callGeminiAPI(prompt) {
+            const fullApiUrl = API_URL + apiKey;
+            const systemPrompt = `You are a world-class business strategy consultant specializing in AI-driven SWOT analysis. Your task is to generate actionable, distinct, and concise strategic recommendations based on the provided Strengths (S), Weaknesses (W), Opportunities (O), and Threats (T). Structure your response as a single JSON object. The strategy explanations must be clear, professional, and targeted to business leaders.`;
+
+            // Define the strict JSON schema for the response
+            const responseSchema = {
+                type: "OBJECT",
+                properties: {
+                    SO_Strategy: { 
+                        type: "STRING", 
+                        description: "Maxi-Maxi Strategy: Use Strengths to maximize Opportunities. Provide a single, detailed paragraph." 
+                    },
+                    WO_Strategy: { 
+                        type: "STRING", 
+                        description: "Mini-Maxi Strategy: Overcome Weaknesses by taking advantage of Opportunities. Provide a single, detailed paragraph." 
+                    },
+                    ST_Strategy: { 
+                        type: "STRING", 
+                        description: "Maxi-Mini Strategy: Use Strengths to minimize or avoid Threats. Provide a single, detailed paragraph." 
+                    },
+                    WT_Strategy: { 
+                        type: "STRING", 
+                        description: "Mini-Mini Strategy: Minimize Weaknesses and avoid Threats. Provide a single, detailed paragraph." 
+                    },
+                    Overall_Summary: { 
+                        type: "STRING", 
+                        description: "A single, overarching strategic summary paragraph derived from the four generated strategies."
+                    }
+                },
+                required: ["SO_Strategy", "WO_Strategy", "ST_Strategy", "WT_Strategy", "Overall_Summary"]
+            };
+
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                },
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: responseSchema
+                },
+                // Use Google Search for current context grounding
+                tools: [{ "google_search": {} }]
+            };
+            
+            const maxRetries = 3;
+            let lastError = null;
+
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(fullApiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        const errorBody = await response.json();
+                        throw new Error(`API returned status ${response.status}: ${JSON.stringify(errorBody)}`);
+                    }
+
+                    const result = await response.json();
+                    
+                    const candidate = result.candidates?.[0];
+                    if (candidate && candidate.content?.parts?.[0]?.text) {
+                        const jsonText = candidate.content.parts[0].text;
+                        // The API returns the JSON as a string, so we must parse it
+                        return JSON.parse(jsonText);
+                    } else {
+                        throw new Error("API response content was empty or invalid.");
+                    }
+                } catch (error) {
+                    lastError = error;
+                    console.error(`Attempt ${i + 1} failed:`, error);
+                    if (i < maxRetries - 1) {
+                        const delay = Math.pow(2, i) * 1000;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    }
+                }
+            }
+
+            throw new Error(`Failed to call Gemini API after ${maxRetries} attempts. Last error: ${lastError.message}`);
+        }
+
+        // --- MAIN APPLICATION LOGIC ---
+
+        async function analyzeSWOT() {
+            const strengths = document.getElementById('strengths-input').value.trim();
+            const weaknesses = document.getElementById('weaknesses-input').value.trim();
+            const opportunities = document.getElementById('opportunities-input').value.trim();
+            const threats = document.getElementById('threats-input').value.trim();
+
+            if (!strengths || !weaknesses || !opportunities || !threats) {
+                showToast('Please fill in all four SWOT sections.', 'error');
+                return;
+            }
+
+            document.getElementById('loading-overlay').classList.remove('hidden');
+            document.getElementById('result-display').classList.add('hidden');
+            
+            const userPrompt = `Based on the following SWOT factors, generate a strategic analysis using the S-O, W-O, S-T, and W-T matrix structure:
+                Strengths (S): ${strengths}
+                Weaknesses (W): ${weaknesses}
+                Opportunities (O): ${opportunities}
+                Threats (T): ${threats}`;
+
+            try {
+                const strategies = await callGeminiAPI(userPrompt);
+
+                // Populate results
+                document.getElementById('so-strategy').textContent = strategies.SO_Strategy;
+                document.getElementById('wo-strategy').textContent = strategies.WO_Strategy;
+                document.getElementById('st-strategy').textContent = strategies.ST_Strategy;
+                document.getElementById('wt-strategy').textContent = strategies.WT_Strategy;
+                document.getElementById('overall-summary').textContent = strategies.Overall_Summary;
+
+                document.getElementById('result-display').classList.remove('hidden');
+                showToast('Analysis complete!', 'success');
+
+            } catch (error) {
+                console.error("SWOT Analysis Error:", error);
+                showToast('AI Analysis failed. Check console for details.', 'error');
+            } finally {
+                document.getElementById('loading-overlay').classList.add('hidden');
+                // Re-initialize Lucide icons after dynamic content is added
+                lucide.createIcons();
+            }
+        }
+
+        // --- INITIALIZATION ---
+
+        window.onload = function() {
+            // Initialize Lucide icons on page load
+            lucide.createIcons();
+        }
+    </script>
+
+</body>
+</html>
