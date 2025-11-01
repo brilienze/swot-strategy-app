@@ -1,0 +1,77 @@
+// Define the cache name and the list of core files (assets) to cache.
+const CACHE_NAME = 'swot-analyzer-v1';
+const urlsToCache = [
+    '/',
+    'swot_analyzer.html',
+    'swot_manifest.json',
+    // Critical External Dependencies for the app to function and style correctly
+    'https://cdn.tailwindcss.com',
+    'https://unpkg.com/lucide@latest',
+    'https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap',
+    // Firebase SDKs (for core logic loading)
+    'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js',
+    'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js',
+    'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js'
+];
+
+// --- Installation Event ---
+// Caching all core app files.
+self.addEventListener('install', (event) => {
+    // Perform install steps
+    event.waitUntil(
+        caches.open(CACHE_NAME)
+            .then((cache) => {
+                console.log('Opened cache and adding assets.');
+                return cache.addAll(urlsToCache);
+            })
+            .catch(err => {
+                console.error('Failed to cache assets during install:', err);
+            })
+    );
+});
+
+// --- Activation Event ---
+// Clearing out old caches to manage disk space.
+self.addEventListener('activate', (event) => {
+    const cacheWhitelist = [CACHE_NAME];
+    event.waitUntil(
+        caches.keys().then((cacheNames) => {
+            return Promise.all(
+                cacheNames.map((cacheName) => {
+                    if (cacheWhitelist.indexOf(cacheName) === -1) {
+                        console.log('Deleting old cache:', cacheName);
+                        return caches.delete(cacheName);
+                    }
+                })
+            );
+        })
+    );
+    // Ensure the service worker takes control of the page immediately
+    return self.clients.claim();
+});
+
+// --- Fetch Event ---
+// Serving content from cache if available, falling back to network.
+self.addEventListener('fetch', (event) => {
+    // Check if the request is for an asset we cached
+    const url = event.request.url;
+    const isCachedAsset = urlsToCache.some(assetUrl => url.includes(assetUrl));
+
+    if (isCachedAsset || event.request.mode === 'navigate') {
+        event.respondWith(
+            caches.match(event.request)
+                .then((response) => {
+                    // Cache hit - return response
+                    if (response) {
+                        return response;
+                    }
+                    // No cache hit - fetch from network
+                    return fetch(event.request);
+                }
+            )
+        );
+    } else {
+        // For other network requests (like the Gemini API call or Firestore data), go straight to network
+        return fetch(event.request);
+    }
+});

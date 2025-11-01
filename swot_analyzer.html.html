@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Powered SWOT Strategy Generator</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Inter Font Family -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+            color: #1f2937;
+        }
+    </style>
+
+    <!-- PWA Manifest Link -->
+    <link rel="manifest" href="swot_manifest.json"> 
+
+    <script type="module">
+        // Firebase Imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, query, onSnapshot, orderBy, serverTimestamp, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase Vars
+        let db;
+        let auth;
+        let userId = null;
+        let appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const __initial_auth_token = typeof window.__initial_auth_token !== 'undefined' ? window.__initial_auth_token : null;
+
+        // PWA Installation Prompt Storage
+        let deferredPrompt;
+
+        // Initialize Firebase
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                // Initialize PWA install handler
+                window.addEventListener('beforeinstallprompt', (e) => {
+                    e.preventDefault();
+                    deferredPrompt = e;
+                    // Show the install button (it will be hidden by default)
+                    const installBtn = document.getElementById('install-btn');
+                    if (installBtn) {
+                        installBtn.classList.remove('hidden');
+                    }
+                });
+
+                setLogLevel('Debug');
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                // Authentication
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        console.log("Authenticated User ID:", userId);
+                        // Start listening to data only after authentication is confirmed
+                        startDataListeners();
+                    } else {
+                        // Sign in anonymously if no token is available or user is signed out
+                        if (__initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            const anonymousUser = await signInAnonymously(auth);
+                            userId = anonymousUser.user.uid;
+                            console.log("Signed in anonymously. User ID:", userId);
+                            startDataListeners();
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase Initialization or Auth Error:", error);
+                document.getElementById('analysis-output').innerHTML = '<div class="text-red-600">Error setting up application. Check console for Firebase connection details.</div>';
+            }
+        });
+
+        // Function to prompt PWA install
+        window.promptInstall = () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('User accepted the install prompt');
+                    } else {
+                        console.log('User dismissed the install prompt');
+                    }
+                    deferredPrompt = null;
+                    document.getElementById('install-btn').classList.add('hidden');
+                });
+            }
+        };
+
+        // --- Data Persistence (Firestore) Functions ---
+
+        const getPrivateCollectionRef = () => {
+            return collection(db, 'artifacts', appId, 'users', userId, 'swot_analyses');
+        };
+
+        const startDataListeners = () => {
+            if (!db || !userId) return;
+
+            const analysesRef = getPrivateCollectionRef();
+            // Query to order by creation date (newest first)
+            const q = query(analysesRef, orderBy('createdAt', 'desc'));
+
+            onSnapshot(q, (snapshot) => {
+                const analyses = [];
+                snapshot.forEach(doc => {
+                    analyses.push({ id: doc.id, ...doc.data() });
+                });
+                renderSavedAnalyses(analyses);
+            }, (error) => {
+                console.error("Error listening to saved analyses:", error);
+            });
+        };
+
+        window.saveProject = async () => {
+            if (!userId) {
+                alert('Authentication pending. Please wait a moment.');
+                return;
+            }
+
+            const name = document.getElementById('project-name').value.trim();
+            if (!name) {
+                showMessage('Please enter a name for your project before saving.', 'error');
+                return;
+            }
+
+            const factors = {
+                S: document.getElementById('strengths').value,
+                W: document.getElementById('weaknesses').value,
+                O: document.getElementById('opportunities').value,
+                T: document.getElementById('threats').value
+            };
+            const analysisOutput = document.getElementById('analysis-output').innerHTML;
+
+            const projectData = {
+                name: name,
+                factors: factors,
+                analysisHTML: analysisOutput,
+                createdAt: serverTimestamp() 
+            };
+
+            try {
+                await setDoc(doc(getPrivateCollectionRef()), projectData);
+                showMessage('Project saved successfully!', 'success');
+            } catch (error) {
+                console.error("Error saving project:", error);
+                showMessage('Failed to save project. See console.', 'error');
+            }
+        };
+
+        window.loadProject = (id, name, factors, analysisHTML) => {
+            document.getElementById('project-name').value = name;
+            document.getElementById('strengths').value = factors.S;
+            document.getElementById('weaknesses').value = factors.W;
+            document.getElementById('opportunities').value = factors.O;
+            document.getElementById('threats').value = factors.T;
+            document.getElementById('analysis-output').innerHTML = analysisHTML;
+            showMessage(`Project "${name}" loaded.`, 'info');
+        };
+
+        window.deleteProject = async (id, name, event) => {
+            event.stopPropagation(); // Prevent the click from triggering the loadProject
+            if (!confirm(`Are you sure you want to delete the analysis "${name}"?`)) {
+                return;
+            }
+            try {
+                await deleteDoc(doc(getPrivateCollectionRef(), id));
+                showMessage(`Project "${name}" deleted.`, 'success');
+            } catch (error) {
+                console.error("Error deleting project:", error);
+                showMessage('Failed to delete project. See console.', 'error');
+            }
+        };
+
+        const renderSavedAnalyses = (analyses) => {
+            const container = document.getElementById('saved-analyses-container');
+            if (!container) return;
+            
+            if (!userId) {
+                container.innerHTML = '<p class="text-sm text-gray-500">Authenticating...</p>';
+                return;
+            }
+
+            if (analyses.length === 0) {
+                container.innerHTML = `<p class="text-sm text-gray-500">No saved projects yet. Analyze and click "Save Project" to start your history (User ID: ${userId}).</p>`;
+                return;
+            }
+
+            container.innerHTML = analyses.map(analysis => {
+                const date = analysis.createdAt ? new Date(analysis.createdAt.seconds * 1000).toLocaleDateString() : 'N/A';
+                
+                // Serialize factors/analysisHTML as JSON strings for clean function passing
+                const factorsJson = JSON.stringify(analysis.factors).replace(/'/g, "\\'");
+                const analysisHtmlEscaped = analysis.analysisHTML ? analysis.analysisHTML.replace(/'/g, "\\'").replace(/"/g, '&quot;') : '';
+
+                return `
+                    <div 
+                        onclick="loadProject('${analysis.id}', '${analysis.name.replace(/'/g, "\\'")}', JSON.parse('${factorsJson}'), '${analysisHtmlEscaped}')" 
+                        class="bg-white p-4 rounded-lg shadow-md hover:shadow-lg transition cursor-pointer flex justify-between items-center border border-gray-100"
+                    >
+                        <div class="truncate">
+                            <p class="font-bold text-blue-700 truncate">${analysis.name}</p>
+                            <p class="text-xs text-gray-500">Saved: ${date}</p>
+                        </div>
+                        <button 
+                            onclick="deleteProject('${analysis.id}', '${analysis.name.replace(/'/g, "\\'")}', event)" 
+                            class="text-red-500 hover:text-red-700 p-2 rounded-full hover:bg-red-100 transition"
+                            aria-label="Delete Project"
+                        >
+                            <svg data-lucide="trash-2" class="w-5 h-5"></svg>
+                        </button>
+                    </div>
+                `;
+            }).join('');
+            lucide.createIcons(); // Re-render icons after DOM update
+        };
+
+
+        // --- Message Box Functionality ---
+
+        const showMessage = (text, type = 'info') => {
+            const messageBox = document.getElementById('message-box');
+            messageBox.textContent = text;
+            messageBox.classList.remove('hidden', 'bg-red-100', 'bg-green-100', 'bg-blue-100');
+            messageBox.classList.add(
+                type === 'error' ? 'bg-red-100' : 
+                type === 'success' ? 'bg-green-100' : 
+                'bg-blue-100'
+            );
+            messageBox.classList.add(
+                type === 'error' ? 'text-red-800' : 
+                type === 'success' ? 'text-green-800' : 
+                'text-blue-800'
+            );
+            setTimeout(() => {
+                messageBox.classList.add('hidden');
+            }, 5000);
+        };
+
+        // --- Gemini API Call Function ---
+
+        const GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025";
+        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+        const API_KEY = ""; // Kept empty; filled by Canvas environment
+
+        const generateAnalysis = async (factors) => {
+            const systemPrompt = `You are a world-class Strategy Consultant specializing in business analysis and planning. Your task is to perform an in-depth, structured SWOT analysis and then generate corresponding strategic recommendations. The output MUST be a JSON object conforming to the provided schema. The analysis must be professional, insightful, and actionable.
+
+Instructions:
+1. Analysis: For each SWOT factor (S, W, O, T), provide a concise, high-impact summary.
+2. Strategy Generation: Generate four distinct strategic recommendations:
+    - SO Strategy (Strength-Opportunity): How to use Strengths to maximize Opportunities.
+    - WO Strategy (Weakness-Opportunity): How to overcome Weaknesses by taking advantage of Opportunities.
+    - ST Strategy (Strength-Threat): How to use Strengths to minimize Threats.
+    - WT Strategy (Weakness-Threat): How to minimize Weaknesses and avoid Threats.
+3. Tone: Maintain a professional, executive summary tone throughout.`;
+
+            const userQuery = `
+            Perform a full SWOT analysis and strategic matrix for a business based on the following input:
+
+            Strengths: ${factors.S}
+            Weaknesses: ${factors.W}
+            Opportunities: ${factors.O}
+            Threats: ${factors.T}
+            `;
+
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                tools: [{ "google_search": {} }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            SWOT_Analysis: {
+                                type: "OBJECT",
+                                properties: {
+                                    Strengths_Summary: { type: "STRING" },
+                                    Weaknesses_Summary: { type: "STRING" },
+                                    Opportunities_Summary: { type: "STRING" },
+                                    Threats_Summary: { type: "STRING" }
+                                }
+                            },
+                            Strategic_Recommendations: {
+                                type: "OBJECT",
+                                properties: {
+                                    SO_Strategy: { type: "STRING" },
+                                    WO_Strategy: { type: "STRING" },
+                                    ST_Strategy: { type: "STRING" },
+                                    WT_Strategy: { type: "STRING" }
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+
+            const maxRetries = 5;
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        const errorBody = await response.text();
+                        console.error(`Attempt ${attempt + 1}: API call failed with status ${response.status}. Body: ${errorBody}`);
+                        if (response.status === 429 && attempt < maxRetries - 1) {
+                            const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            continue;
+                        }
+                        throw new Error(`API call failed with status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    
+                    const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (!jsonText) {
+                        throw new Error("Invalid response format from AI model.");
+                    }
+
+                    return JSON.parse(jsonText);
+
+                } catch (error) {
+                    console.error(`Attempt ${attempt + 1} failed:`, error.message);
+                    if (attempt === maxRetries - 1) throw error;
+                }
+            }
+        };
+
+        // --- Main UI Logic ---
+
+        window.analyzeSWOT = async () => {
+            const button = document.getElementById('analyze-btn');
+            const outputDiv = document.getElementById('analysis-output');
+
+            const factors = {
+                S: document.getElementById('strengths').value.trim(),
+                W: document.getElementById('weaknesses').value.trim(),
+                O: document.getElementById('opportunities').value.trim(),
+                T: document.getElementById('threats').value.trim()
+            };
+
+            if (Object.values(factors).some(v => v === '')) {
+                showMessage('Please fill in all four SWOT categories.', 'error');
+                return;
+            }
+
+            outputDiv.innerHTML = '<p class="text-center py-8 text-xl font-semibold text-blue-600 flex items-center justify-center"><svg class="animate-spin h-6 w-6 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Generating Strategy...</p>';
+            button.disabled = true;
+
+            try {
+                const result = await generateAnalysis(factors);
+                renderAnalysis(result);
+                showMessage('SWOT Analysis and Strategy Generated!', 'success');
+            } catch (error) {
+                console.error("Analysis Error:", error);
+                outputDiv.innerHTML = '<div class="text-center py-8 text-red-600">Error generating analysis. Please try again.</div>';
+                showMessage('Strategy generation failed.', 'error');
+            } finally {
+                button.disabled = false;
+            }
+        };
+
+        const renderAnalysis = (data) => {
+            const outputDiv = document.getElementById('analysis-output');
+            const analysis = data.SWOT_Analysis || {};
+            const strategies = data.Strategic_Recommendations || {};
+
+            const analysisHTML = `
+                <div class="space-y-12">
+                    <h2 class="text-4xl font-extrabold text-gray-800 border-b-4 border-blue-600 pb-2">Executive Strategy Report</h2>
+                    
+                    <!-- SWOT Summary Section -->
+                    <div class="grid md:grid-cols-2 gap-6">
+                        ${Object.entries(analysis).map(([key, value]) => `
+                            <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 ${key.startsWith('S') ? 'border-green-500' : key.startsWith('W') ? 'border-red-500' : key.startsWith('O') ? 'border-yellow-500' : 'border-gray-500'}">
+                                <h3 class="text-xl font-bold mb-2 ${key.startsWith('S') ? 'text-green-700' : key.startsWith('W') ? 'text-red-700' : key.startsWith('O') ? 'text-yellow-700' : 'text-gray-700'}">${key.replace('_Summary', '').replace(/_/g, ' ')}</h3>
+                                <p class="text-gray-600">${value}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <!-- Strategic Recommendations Section -->
+                    <h2 class="text-4xl font-extrabold text-gray-800 border-b-4 border-purple-600 pb-2 mt-12">Strategic Recommendations (TOWS Matrix)</h2>
+
+                    <div class="space-y-8">
+                        ${Object.entries(strategies).map(([key, value]) => {
+                            let title = key.replace(/_/g, ' ').toUpperCase();
+                            let color = 'bg-blue-100 text-blue-800 border-blue-500';
+                            let icon = 'rocket';
+
+                            if (key.startsWith('SO')) {
+                                title = 'SO Strategy (Maxi-Maxi)';
+                                color = 'bg-green-100 text-green-800 border-green-500';
+                                icon = 'trending-up';
+                            } else if (key.startsWith('WO')) {
+                                title = 'WO Strategy (Mini-Maxi)';
+                                color = 'bg-yellow-100 text-yellow-800 border-yellow-500';
+                                icon = 'shuffle';
+                            } else if (key.startsWith('ST')) {
+                                title = 'ST Strategy (Maxi-Mini)';
+                                color = 'bg-purple-100 text-purple-800 border-purple-500';
+                                icon = 'shield';
+                            } else if (key.startsWith('WT')) {
+                                title = 'WT Strategy (Mini-Mini)';
+                                color = 'bg-red-100 text-red-800 border-red-500';
+                                icon = 'alert-triangle';
+                            }
+
+                            return `
+                                <div class="p-6 rounded-xl shadow-xl border-l-4 ${color}">
+                                    <div class="flex items-center mb-3">
+                                        <svg data-lucide="${icon}" class="w-6 h-6 mr-3"></svg>
+                                        <h4 class="text-2xl font-bold">${title}</h4>
+                                    </div>
+                                    <p class="text-gray-700">${value}</p>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+            outputDiv.innerHTML = analysisHTML;
+            lucide.createIcons();
+        };
+
+        window.clearInputs = () => {
+            document.getElementById('project-name').value = '';
+            document.getElementById('strengths').value = '';
+            document.getElementById('weaknesses').value = '';
+            document.getElementById('opportunities').value = '';
+            document.getElementById('threats').value = '';
+            document.getElementById('analysis-output').innerHTML = '<div class="py-12 text-center text-gray-500">Enter your SWOT factors and click "Analyze SWOT" to generate a strategic plan.</div>';
+            showMessage('Inputs and output cleared.', 'info');
+        };
+
+        window.onload = () => {
+            lucide.createIcons();
+            // Register service worker if supported
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                    navigator.serviceWorker.register('./swot_service_worker.js')
+                        .then(registration => {
+                            console.log('SW registered: ', registration);
+                        })
+                        .catch(registrationError => {
+                            console.log('SW registration failed: ', registrationError);
+                        });
+                });
+            }
+        };
+
+    </script>
+</head>
+<body class="min-h-screen p-4 sm:p-8">
+
+    <div id="message-box" class="hidden fixed top-0 left-0 right-0 z-50 p-4 text-center font-semibold rounded-none transition-all duration-300 shadow-xl" role="alert">
+        <!-- Messages appear here -->
+    </div>
+
+    <div class="max-w-7xl mx-auto bg-white p-6 sm:p-10 rounded-3xl shadow-2xl border border-gray-100">
+
+        <!-- Header -->
+        <header class="text-center mb-12 border-b pb-6">
+            <h1 class="text-5xl font-extrabold text-blue-800 mb-2 flex items-center justify-center">
+                <svg data-lucide="brain-circuit" class="w-10 h-10 mr-4 text-emerald-500"></svg>
+                Brillienze AI SWOT Strategist
+            </h1>
+            <p class="text-xl text-gray-600">Transforming analysis into actionable strategy with AI.</p>
+        </header>
+
+        <!-- Saved Analyses / History -->
+        <div class="mb-12">
+            <h2 class="text-2xl font-bold text-gray-700 mb-4 flex items-center">
+                <svg data-lucide="history" class="w-6 h-6 mr-2"></svg>
+                Saved Analyses (Project History)
+            </h2>
+            <div id="saved-analyses-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-xl border border-gray-200 min-h-[50px]">
+                <p class="text-sm text-gray-500">Loading saved projects...</p>
+            </div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="mb-12">
+            <h2 class="text-3xl font-bold text-gray-800 mb-6 border-b pb-2">1. Define Your Project & Factors</h2>
+            
+            <div class="mb-6">
+                <label for="project-name" class="block text-lg font-semibold text-gray-700 mb-2">Project Name</label>
+                <input type="text" id="project-name" placeholder="E.g., 2025 Market Expansion Strategy" class="w-full p-3 border-2 border-gray-300 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition shadow-sm" required>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Strengths -->
+                <div>
+                    <label for="strengths" class="block text-lg font-semibold text-gray-700 mb-2 flex items-center text-green-700">
+                        <svg data-lucide="check-circle" class="w-5 h-5 mr-2"></svg>Strengths (Internal, Positive)
+                    </label>
+                    <textarea id="strengths" rows="6" placeholder="List your company's core competencies, unique resources, and competitive advantages, separated by commas or new lines." class="w-full p-4 border-2 border-green-300 rounded-xl focus:border-green-500 focus:ring-1 focus:ring-green-500 transition shadow-md"></textarea>
+                </div>
+
+                <!-- Weaknesses -->
+                <div>
+                    <label for="weaknesses" class="block text-lg font-semibold text-gray-700 mb-2 flex items-center text-red-700">
+                        <svg data-lucide="x-circle" class="w-5 h-5 mr-2"></svg>Weaknesses (Internal, Negative)
+                    </label>
+                    <textarea id="weaknesses" rows="6" placeholder="List areas where the company lacks resources, capabilities, or faces internal problems, separated by commas or new lines." class="w-full p-4 border-2 border-red-300 rounded-xl focus:border-red-500 focus:ring-1 focus:ring-red-500 transition shadow-md"></textarea>
+                </div>
+
+                <!-- Opportunities -->
+                <div>
+                    <label for="opportunities" class="block text-lg font-semibold text-gray-700 mb-2 flex items-center text-yellow-700">
+                        <svg data-lucide="lightbulb" class="w-5 h-5 mr-2"></svg>Opportunities (External, Positive)
+                    </label>
+                    <textarea id="opportunities" rows="6" placeholder="List favorable external factors, market trends, or potential partnerships that could benefit the company, separated by commas or new lines." class="w-full p-4 border-2 border-yellow-300 rounded-xl focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 transition shadow-md"></textarea>
+                </div>
+
+                <!-- Threats -->
+                <div>
+                    <label for="threats" class="block text-lg font-semibold text-gray-700 mb-2 flex items-center text-gray-700">
+                        <svg data-lucide="alert-triangle" class="w-5 h-5 mr-2"></svg>Threats (External, Negative)
+                    </label>
+                    <textarea id="threats" rows="6" placeholder="List potential external problems, competitor actions, or regulatory changes that could harm the company, separated by commas or new lines." class="w-full p-4 border-2 border-gray-300 rounded-xl focus:border-gray-500 focus:ring-1 focus:ring-gray-500 transition shadow-md"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="text-center mb-12 flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4">
+            
+            <button id="clear-btn" onclick="clearInputs()" class="bg-gray-500 text-white px-8 py-4 text-xl font-bold rounded-xl shadow-lg hover:bg-gray-600 transition duration-300 transform hover:scale-105 flex items-center justify-center mx-auto sm:mx-0">
+                <svg data-lucide="rotate-ccw" class="w-6 h-6 mr-2"></svg> Clear Inputs
+            </button>
+            
+            <button id="save-btn" onclick="saveProject()" class="bg-blue-600 text-white px-8 py-4 text-xl font-bold rounded-xl shadow-lg hover:bg-blue-700 transition duration-300 transform hover:scale-105 flex items-center justify-center mx-auto sm:mx-0">
+                <svg data-lucide="save" class="w-6 h-6 mr-2"></svg> Save Project
+            </button>
+
+            <button id="analyze-btn" onclick="analyzeSWOT()" class="bg-emerald-500 text-white px-8 py-4 text-xl font-bold rounded-xl shadow-2xl hover:bg-emerald-600 transition duration-300 transform hover:scale-105 flex items-center justify-center mx-auto sm:mx-0">
+                <svg data-lucide="wand-2" class="w-6 h-6 mr-2"></svg> Analyze SWOT & Generate Strategy
+            </button>
+            
+            <!-- Install Button (Hidden until PWA event fires) -->
+            <button id="install-btn" onclick="promptInstall()" class="hidden bg-purple-600 text-white px-8 py-4 text-xl font-bold rounded-xl shadow-lg hover:bg-purple-700 transition duration-300 transform hover:scale-105 flex items-center justify-center mx-auto sm:mx-0">
+                <svg data-lucide="download-cloud" class="w-6 h-6 mr-2"></svg> Install App
+            </button>
+        </div>
+
+        <!-- Output Area -->
+        <div id="analysis-output" class="bg-gray-50 p-6 sm:p-10 rounded-2xl shadow-inner min-h-[300px]">
+            <div class="py-12 text-center text-gray-500">
+                Enter your SWOT factors and click "Analyze SWOT" to generate a strategic plan.
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Re-initialize Lucide Icons on final load -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+        });
+    </script>
+</body>
+</html>
